@@ -164,36 +164,86 @@ void DQN::train_step()
     cudaMemcpy(d_next_states_, h_next_states, batch_size_ * state_dim_ * sizeof(float),
                cudaMemcpyHostToDevice);
 
-    // Forward pass through policy network for current states
+    // Accumulate loss for monitoring
+    float total_loss = 0.0f;
+
+    // Train on each sample in the batch
     for (size_t i = 0; i < batch_size_; ++i)
     {
+        // Forward pass through policy network for current state
         policy_net_->forward(d_states_ + i * state_dim_,
                              d_q_values_ + i * action_dim_);
-    }
 
-    // Forward pass through target network for next states
-    for (size_t i = 0; i < batch_size_; ++i)
-    {
+        // Forward pass through target network for next state
         target_net_->forward(d_next_states_ + i * state_dim_,
                              d_next_q_values_ + i * action_dim_);
+
+        // Compute TD target for this sample
+        float *h_q_values = new float[action_dim_];
+        float *h_next_q_values = new float[action_dim_];
+        cudaMemcpy(h_q_values, d_q_values_ + i * action_dim_,
+                   action_dim_ * sizeof(float), cudaMemcpyDeviceToHost);
+        cudaMemcpy(h_next_q_values, d_next_q_values_ + i * action_dim_,
+                   action_dim_ * sizeof(float), cudaMemcpyDeviceToHost);
+
+        // Find max Q-value for next state
+        float max_next_q = h_next_q_values[0];
+        for (int a = 1; a < action_dim_; ++a)
+        {
+            max_next_q = std::max(max_next_q, h_next_q_values[a]);
+        }
+
+        // Compute TD target
+        int action = batch[i].action;
+        float reward = batch[i].reward;
+        bool done = batch[i].done;
+
+        float td_target;
+        if (done)
+        {
+            td_target = reward;
+        }
+        else
+        {
+            td_target = reward + gamma_ * max_next_q;
+        }
+
+        // Compute loss gradient (MSE derivative)
+        // grad = 2 * (predicted - target) / batch_size
+        float *h_grad_output = new float[action_dim_];
+        for (int a = 0; a < action_dim_; ++a)
+        {
+            if (a == action)
+            {
+                // Only compute gradient for the action taken
+                float diff = h_q_values[a] - td_target;
+                h_grad_output[a] = 2.0f * diff / batch_size_;
+                total_loss += diff * diff;
+            }
+            else
+            {
+                h_grad_output[a] = 0.0f; // No gradient for other actions
+            }
+        }
+
+        // Copy gradient to device
+        cudaMemcpy(d_gradients_ + i * action_dim_, h_grad_output,
+                   action_dim_ * sizeof(float), cudaMemcpyHostToDevice);
+
+        // Backward pass through policy network
+        policy_net_->backward(d_states_ + i * state_dim_,
+                              d_gradients_ + i * action_dim_);
+
+        delete[] h_q_values;
+        delete[] h_next_q_values;
+        delete[] h_grad_output;
     }
 
-    // Compute TD targets
-    float *h_target_q_values = new float[batch_size_ * action_dim_];
-    compute_td_targets(batch, h_target_q_values);
-
-    cudaMemcpy(d_target_q_values_, h_target_q_values,
-               batch_size_ * action_dim_ * sizeof(float),
-               cudaMemcpyHostToDevice);
-
-    // Compute gradients (simplified - in reality would use backprop)
-    compute_gradients(d_q_values_, d_target_q_values_, h_actions, batch_size_);
-
-    // Update weights using optimizer
-    // Note: This is simplified - actual implementation would update all network weights
-    optimizer_->step(d_gradients_, d_gradients_, batch_size_ * action_dim_);
+    // Update weights using accumulated gradients
+    policy_net_->update_weights(optimizer_);
 
     // Update statistics
+    avg_loss_ = total_loss / batch_size_;
     total_steps_++;
 
     // Update target network periodically
@@ -206,7 +256,6 @@ void DQN::train_step()
     delete[] h_states;
     delete[] h_next_states;
     delete[] h_actions;
-    delete[] h_target_q_values;
 }
 
 void DQN::update_target_network()
@@ -224,86 +273,4 @@ void DQN::update_target_network()
 void DQN::decay_epsilon()
 {
     epsilon_ = std::max(epsilon_end_, epsilon_ * epsilon_decay_);
-}
-
-void DQN::compute_td_targets(const std::vector<Experience> &batch,
-                             float *h_target_q_values)
-{
-    // Get next Q-values from device
-    float *h_next_q_values = new float[batch_size_ * action_dim_];
-    cudaMemcpy(h_next_q_values, d_next_q_values_,
-               batch_size_ * action_dim_ * sizeof(float),
-               cudaMemcpyDeviceToHost);
-
-    // Get current Q-values from device
-    float *h_q_values = new float[batch_size_ * action_dim_];
-    cudaMemcpy(h_q_values, d_q_values_,
-               batch_size_ * action_dim_ * sizeof(float),
-               cudaMemcpyDeviceToHost);
-
-    // Compute TD targets: r + gamma * max_a' Q(s', a')
-    for (size_t i = 0; i < batch_size_; ++i)
-    {
-        // Start with current Q-values
-        for (int a = 0; a < action_dim_; ++a)
-        {
-            h_target_q_values[i * action_dim_ + a] = h_q_values[i * action_dim_ + a];
-        }
-
-        // Find max Q-value for next state
-        float max_next_q = h_next_q_values[i * action_dim_];
-        for (int a = 1; a < action_dim_; ++a)
-        {
-            max_next_q = std::max(max_next_q, h_next_q_values[i * action_dim_ + a]);
-        }
-
-        // Compute TD target for the action taken
-        int action = batch[i].action;
-        float reward = batch[i].reward;
-        bool done = batch[i].done;
-
-        if (done)
-        {
-            h_target_q_values[i * action_dim_ + action] = reward;
-        }
-        else
-        {
-            h_target_q_values[i * action_dim_ + action] = reward + gamma_ * max_next_q;
-        }
-    }
-
-    delete[] h_next_q_values;
-    delete[] h_q_values;
-}
-
-void DQN::compute_gradients(const float *q_values, const float *targets,
-                            const int *actions, int batch_size)
-{
-    // Simplified gradient computation
-    // In reality, this would be done through backpropagation
-    float *h_q_values = new float[batch_size * action_dim_];
-    float *h_targets = new float[batch_size * action_dim_];
-    float *h_gradients = new float[batch_size * action_dim_];
-
-    cudaMemcpy(h_q_values, q_values, batch_size * action_dim_ * sizeof(float),
-               cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_targets, targets, batch_size * action_dim_ * sizeof(float),
-               cudaMemcpyDeviceToHost);
-
-    // Compute MSE gradients: 2 * (q_values - targets)
-    float total_loss = 0.0f;
-    for (int i = 0; i < batch_size * action_dim_; ++i)
-    {
-        h_gradients[i] = 2.0f * (h_q_values[i] - h_targets[i]) / batch_size;
-        total_loss += (h_q_values[i] - h_targets[i]) * (h_q_values[i] - h_targets[i]);
-    }
-
-    avg_loss_ = total_loss / batch_size;
-
-    cudaMemcpy(d_gradients_, h_gradients, batch_size * action_dim_ * sizeof(float),
-               cudaMemcpyHostToDevice);
-
-    delete[] h_q_values;
-    delete[] h_targets;
-    delete[] h_gradients;
 }
