@@ -9,7 +9,14 @@ Una implementación completa de Deep Q-Network (DQN) acelerada con CUDA para apr
 * Algoritmo DQN con experience replay y target network
 * Optimizadores implementados en CUDA (SGD y Adam)
 * Red neuronal configurable
+* **Sistema de logging y visualización** con Python
 * Ejemplos listos para usar
+
+## Resultados de Entrenamiento
+
+![Training Results](docs/img/Figure_1.png)
+
+*Curvas de aprendizaje mostrando la evolución del reward, loss, pasos por episodio y epsilon decay durante el entrenamiento.*
 
 ## Requisitos
 
@@ -44,8 +51,27 @@ nvcc -o build/test_backward examples/test_backward.cu src/network.cu src/optimiz
 ### Test del DQN Completo
 
 ```bash
-nvcc -o build/test_dqn examples/test_dqn.cu src/dqn.cpp src/network.cu src/optimizer.cu src/replay_buffer.cpp -I./include -lcublas -std=c++17
+nvcc -o build/test_dqn examples/test_dqn.cu src/dqn.cu src/network.cu src/optimizer.cu src/replay_buffer.cpp -I./include -lcublas -std=c++17
 ./build/test_dqn
+```
+
+### Test del DQN con Logging y Visualización
+
+```bash
+# Compilar y ejecutar con logging
+nvcc -o build/test_dqn_logging examples/test_dqn_with_logging.cu src/dqn.cu src/network.cu src/optimizer.cu src/replay_buffer.cpp src/training_logger.cpp -I./include -lcublas -std=c++17
+./build/test_dqn_logging
+
+# Visualizar resultados
+pip install -r requirements.txt
+python visualize_training.py training_log
+```
+
+### Script de Build Interactivo
+
+```bash
+./build.sh
+# Selecciona la opción deseada del menú
 ```
 
 ## Estructura del Proyecto
@@ -57,12 +83,14 @@ dqn-cuda/
 │   ├── network.h
 │   ├── optimizer.h
 │   ├── replay_buffer.h
+│   ├── training_logger.h
 │   └── cuda_utils.h
 ├── src/
-│   ├── dqn.cpp
+│   ├── dqn.cu
 │   ├── network.cu
 │   ├── optimizer.cu
 │   ├── replay_buffer.cpp
+│   ├── training_logger.cpp
 │   └── main.cu
 ├── kernels/
 │   ├── activation_kernels.cu
@@ -70,33 +98,64 @@ dqn-cuda/
 │   └── math_ops.cu
 ├── examples/
 │   ├── test_optimizer.cu
-│   ├── test_network.cu
-│   └── test_dqn.cu
+│   ├── test_backward.cu
+│   ├── test_dqn.cu
+│   └── test_dqn_with_logging.cu
 ├── docs/
 │   ├── dqn_implementation.md
-│   └── optimizer_implementation.md
+│   ├── optimizer_implementation.md
+│   ├── backward_pass_implementation.md
+│   └── training_logging.md
+├── visualize_training.py
+├── requirements.txt
+├── build.sh
 └── Makefile
 ```
 
 ## Uso Básico
 
+### Entrenamiento Simple
+
 ```cpp
 #include "dqn.h"
 
-DQN agent(state_dim, action_dim);
+DQN agent(state_dim, action_dim, 
+          learning_rate, gamma, epsilon, epsilon_min, epsilon_decay,
+          buffer_capacity, batch_size, target_update_freq);
 
 for (int episode = 0; episode < 1000; episode++) {
     env.reset();
     while (!done) {
-        int action = agent.select_action(state.data());
+        int action = agent.select_action(state, true);
         auto [next_state, reward, done] = env.step(action);
 
-        agent.store_experience(state.data(), action, reward,
-                               next_state.data(), done);
+        agent.store_experience(state, action, reward, next_state, done);
         agent.train_step();
     }
-    agent.decay_epsilon();
 }
+```
+
+### Con Logging y Visualización
+
+```cpp
+#include "dqn.h"
+#include "training_logger.h"
+
+DQN agent(state_dim, action_dim, 
+          learning_rate, gamma, epsilon, epsilon_min, epsilon_decay,
+          buffer_capacity, batch_size, target_update_freq);
+TrainingLogger logger("my_experiment");
+
+for (int episode = 0; episode < 1000; episode++) {
+    // ... entrenar episodio ...
+    
+    // Registrar métricas
+    logger.log_episode(episode, total_reward, steps,
+                      agent.get_epsilon(), agent.get_avg_loss());
+}
+
+// Visualizar con Python
+// python visualize_training.py my_experiment
 ```
 
 ## Componentes Principales
@@ -111,14 +170,15 @@ for (int episode = 0; episode < 1000; episode++) {
 ### Neural Network
 
 * Red feed-forward
-* Backpropagation completo
-* ReLU y derivada
-* cuBLAS para operaciones matriciales
+* Backpropagation completo con gradientes exactos
+* ReLU y derivada ReLU implementadas en CUDA
+* cuBLAS para operaciones matriciales (gemv, ger, saxpy)
 
 ### Optimizer
 
-* SGD
-* Adam
+* SGD con momentum
+* Adam con bias correction
+* Kernels CUDA personalizados
 
 ### Replay Buffer
 
@@ -126,15 +186,31 @@ for (int episode = 0; episode < 1000; episode++) {
 * Muestreo aleatorio
 * Evita olvido catastrófico
 
+### Training Logger
+
+* Logging de métricas por episodio
+* Logging detallado por paso (opcional)
+* Exportación a CSV
+* Visualización con Python/Matplotlib
+
 ## Algoritmo DQN
 
-1. Inicializar redes
-2. Seleccionar acción con epsilon-greedy
-3. Guardar transiciones
-4. Muestrear batch del buffer
-5. Calcular TD target
-6. Actualizar la policy network
-7. Actualizar la target network periódicamente
+1. Inicializar policy network y target network
+2. Para cada episodio:
+   - Seleccionar acción con epsilon-greedy
+   - Ejecutar acción en el entorno
+   - Guardar transición (s, a, r, s', done) en replay buffer
+   - Muestrear batch aleatorio del buffer
+   - Para cada transición en el batch:
+     * Calcular TD target: y = r + γ * max Q'(s', a')
+     * Forward pass: q = Q(s)
+     * Calcular gradiente: ∇L = 2 * (q[a] - y) / batch_size
+     * Backward pass: propagar gradientes
+   - Actualizar pesos con optimizer
+   - Actualizar target network periódicamente
+   - Decrementar epsilon
+
+Ver `docs/dqn_implementation.md` para detalles matemáticos completos.
 
 ## Hiperparámetros
 
