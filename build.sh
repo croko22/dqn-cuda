@@ -38,10 +38,11 @@ echo ""
 echo "Selecciona una opción:"
 echo "  1) Compilar proyecto principal (make)"
 echo "  2) Compilar y ejecutar test del optimizador"
-echo "  3) Compilar y ejecutar test del DQN"
-echo "  4) Limpiar build (make clean)"
-echo "  5) Compilar todo y ejecutar todos los tests"
-echo "  6) Ver documentación"
+echo "  3) Compilar y ejecutar test del backward pass"
+echo "  4) Compilar y ejecutar test del DQN"
+echo "  5) Limpiar build (make clean)"
+echo "  6) Compilar todo y ejecutar todos los tests"
+echo "  7) Ver documentación"
 echo "  0) Salir"
 echo ""
 read -p "Opción: " option
@@ -60,25 +61,35 @@ case $option in
         ./build/test_optimizer
         ;;
     3)
+        print_info "Compilando test del backward pass..."
+        nvcc -o build/test_backward examples/test_backward.cu src/network.cu src/optimizer.cu -I./include -lcublas -std=c++17
+        print_success "Compilación exitosa!"
+        print_info "Ejecutando test..."
+        ./build/test_backward
+        ;;
+    4)
         print_info "Compilando test del DQN..."
         nvcc -o build/test_dqn examples/test_dqn.cu src/dqn.cu src/network.cu src/optimizer.cu src/replay_buffer.cpp -I./include -lcublas -std=c++17
         print_success "Compilación exitosa!"
         print_info "Ejecutando test (esto puede tomar un momento)..."
         ./build/test_dqn
         ;;
-    4)
+    5)
         print_info "Limpiando build..."
         make clean
-        rm -f build/test_optimizer build/test_dqn
+        rm -f build/test_optimizer build/test_backward build/test_dqn
         print_success "Build limpiado!"
         ;;
-    5)
+    6)
         print_info "Compilando todo..."
         make clean
         make
         
         print_info "Compilando test del optimizador..."
         nvcc -o build/test_optimizer examples/test_optimizer.cu src/optimizer.cu -I./include -lcublas
+        
+        print_info "Compilando test del backward pass..."
+        nvcc -o build/test_backward examples/test_backward.cu src/network.cu src/optimizer.cu -I./include -lcublas -std=c++17
         
         print_info "Compilando test del DQN..."
         nvcc -o build/test_dqn examples/test_dqn.cu src/dqn.cu src/network.cu src/optimizer.cu src/replay_buffer.cpp -I./include -lcublas -std=c++17
@@ -91,13 +102,18 @@ case $option in
         
         echo ""
         echo "=================================="
+        print_info "Ejecutando test del backward pass..."
+        ./build/test_backward
+        
+        echo ""
+        echo "=================================="
         print_info "Ejecutando test del DQN..."
         ./build/test_dqn
         
         echo ""
         print_success "¡Todos los tests completados exitosamente!"
         ;;
-    6)
+    7)
         print_info "Documentación disponible:"
         echo ""
         echo "  📄 README.md - Introducción y guía rápida"
