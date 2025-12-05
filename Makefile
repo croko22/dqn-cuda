@@ -4,7 +4,7 @@ CXXFLAGS = -Iinclude -O2 -std=c++17
 NVCCFLAGS = -Iinclude -O2 -std=c++17
 LDFLAGS = -lcublas
 
-CPP_SRC = src/replay_buffer.cpp
+CPP_SRC = src/replay_buffer.cpp src/training_logger.cpp
 CU_SRC = src/main.cu src/network.cu src/optimizer.cu src/dqn.cu
 KERNEL_SRC = kernels/activation_kernels.cu kernels/linear_kernels.cu kernels/math_ops.cu
 

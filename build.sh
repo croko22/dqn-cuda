@@ -40,9 +40,10 @@ echo "  1) Compilar proyecto principal (make)"
 echo "  2) Compilar y ejecutar test del optimizador"
 echo "  3) Compilar y ejecutar test del backward pass"
 echo "  4) Compilar y ejecutar test del DQN"
-echo "  5) Limpiar build (make clean)"
-echo "  6) Compilar todo y ejecutar todos los tests"
-echo "  7) Ver documentación"
+echo "  5) Compilar y ejecutar test del DQN con logging"
+echo "  6) Limpiar build (make clean)"
+echo "  7) Compilar todo y ejecutar todos los tests"
+echo "  8) Ver documentación"
 echo "  0) Salir"
 echo ""
 read -p "Opción: " option
@@ -75,12 +76,20 @@ case $option in
         ./build/test_dqn
         ;;
     5)
-        print_info "Limpiando build..."
-        make clean
-        rm -f build/test_optimizer build/test_backward build/test_dqn
-        print_success "Build limpiado!"
+        print_info "Compilando test del DQN con logging..."
+        nvcc -o build/test_dqn_logging examples/test_dqn_with_logging.cu src/dqn.cu src/network.cu src/optimizer.cu src/replay_buffer.cpp src/training_logger.cpp -I./include -lcublas -std=c++17
+        print_success "Compilación exitosa!"
+        print_info "Ejecutando test con logging (generando datos para visualización)..."
+        ./build/test_dqn_logging
+        print_success "Entrenamiento completo! Visualiza con: python visualize_training.py training_log"
         ;;
     6)
+        print_info "Limpiando build..."
+        make clean
+        rm -f build/test_optimizer build/test_backward build/test_dqn build/test_dqn_logging
+        print_success "Build limpiado!"
+        ;;
+    7)
         print_info "Compilando todo..."
         make clean
         make
@@ -93,6 +102,9 @@ case $option in
         
         print_info "Compilando test del DQN..."
         nvcc -o build/test_dqn examples/test_dqn.cu src/dqn.cu src/network.cu src/optimizer.cu src/replay_buffer.cpp -I./include -lcublas -std=c++17
+        
+        print_info "Compilando test del DQN con logging..."
+        nvcc -o build/test_dqn_logging examples/test_dqn_with_logging.cu src/dqn.cu src/network.cu src/optimizer.cu src/replay_buffer.cpp src/training_logger.cpp -I./include -lcublas -std=c++17
         
         print_success "Todo compilado exitosamente!"
         
@@ -113,7 +125,7 @@ case $option in
         echo ""
         print_success "¡Todos los tests completados exitosamente!"
         ;;
-    7)
+    8)
         print_info "Documentación disponible:"
         echo ""
         echo "  📄 README.md - Introducción y guía rápida"
