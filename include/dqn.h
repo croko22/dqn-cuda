@@ -15,7 +15,8 @@ public:
         float epsilon_decay = 0.995f,
         size_t buffer_capacity = 10000,
         size_t batch_size = 64,
-        int target_update_freq = 10);
+        int target_update_freq = 10,
+        bool use_double_dqn = false);
 
     ~DQN();
 
@@ -35,6 +36,9 @@ public:
     int get_steps() const { return total_steps_; }
     float get_avg_loss() const { return avg_loss_; }
 
+    void save_model(const std::string &filename);
+    void load_model(const std::string &filename);
+
 private:
     Network *policy_net_;
     Network *target_net_;
@@ -51,6 +55,7 @@ private:
     float epsilon_decay_;
     size_t batch_size_;
     int target_update_freq_;
+    bool use_double_dqn_;
 
     int total_steps_;
     int episodes_trained_;
@@ -61,5 +66,6 @@ private:
     float *d_q_values_;
     float *d_next_q_values_;
     float *d_target_q_values_;
+    float *d_next_policy_q_values_; // For Double DQN
     float *d_gradients_;
 };

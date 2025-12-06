@@ -5,7 +5,9 @@
 #include <cuda_runtime.h>
 #include <iostream>
 #include <cstdlib>
+#include <cstdlib>
 #include <ctime>
+#include <fstream>
 
 // Forward ReLU kernel: f(x) = max(0, x)
 __global__ void relu_kernel(float *data, int size)
@@ -211,6 +213,77 @@ public:
         cublasSaxpy(handle_, input_dim_ * hidden_dim_, &alpha, gradients, 1, d_w1_, 1);
     }
 
+    void save(const std::string &filename)
+    {
+        std::ofstream file(filename, std::ios::binary);
+        if (!file.is_open())
+        {
+            std::cerr << "Error: Could not open file " << filename << " for writing." << std::endl;
+            return;
+        }
+
+        // Write dimensions
+        file.write(reinterpret_cast<const char *>(&input_dim_), sizeof(int));
+        file.write(reinterpret_cast<const char *>(&hidden_dim_), sizeof(int));
+        file.write(reinterpret_cast<const char *>(&output_dim_), sizeof(int));
+
+        // Helper to save device array
+        auto save_array = [&](float *d_ptr, int size) {
+            float *h_ptr = new float[size];
+            cudaMemcpy(h_ptr, d_ptr, size * sizeof(float), cudaMemcpyDeviceToHost);
+            file.write(reinterpret_cast<const char *>(h_ptr), size * sizeof(float));
+            delete[] h_ptr;
+        };
+
+        save_array(d_w1_, input_dim_ * hidden_dim_);
+        save_array(d_b1_, hidden_dim_);
+        save_array(d_w2_, hidden_dim_ * output_dim_);
+        save_array(d_b2_, output_dim_);
+
+        file.close();
+        std::cout << "Model saved to " << filename << std::endl;
+    }
+
+    void load(const std::string &filename)
+    {
+        std::ifstream file(filename, std::ios::binary);
+        if (!file.is_open())
+        {
+            std::cerr << "Error: Could not open file " << filename << " for reading." << std::endl;
+            return;
+        }
+
+        // Read and verify dimensions
+        int in_dim, hid_dim, out_dim;
+        file.read(reinterpret_cast<char *>(&in_dim), sizeof(int));
+        file.read(reinterpret_cast<char *>(&hid_dim), sizeof(int));
+        file.read(reinterpret_cast<char *>(&out_dim), sizeof(int));
+
+        if (in_dim != input_dim_ || hid_dim != hidden_dim_ || out_dim != output_dim_)
+        {
+            std::cerr << "Error: Model dimensions mismatch." << std::endl;
+            std::cerr << "Expected: " << input_dim_ << " " << hidden_dim_ << " " << output_dim_ << std::endl;
+            std::cerr << "Found: " << in_dim << " " << hid_dim << " " << out_dim << std::endl;
+            return;
+        }
+
+        // Helper to load device array
+        auto load_array = [&](float *d_ptr, int size) {
+            float *h_ptr = new float[size];
+            file.read(reinterpret_cast<char *>(h_ptr), size * sizeof(float));
+            cudaMemcpy(d_ptr, h_ptr, size * sizeof(float), cudaMemcpyHostToDevice);
+            delete[] h_ptr;
+        };
+
+        load_array(d_w1_, input_dim_ * hidden_dim_);
+        load_array(d_b1_, hidden_dim_);
+        load_array(d_w2_, hidden_dim_ * output_dim_);
+        load_array(d_b2_, output_dim_);
+
+        file.close();
+        std::cout << "Model loaded from " << filename << std::endl;
+    }
+
     // Getters for weights
     float *get_w1() { return d_w1_; }
     float *get_b1() { return d_b1_; }
@@ -293,3 +366,13 @@ int Network::get_w1_size() const { return impl_->get_w1_size(); }
 int Network::get_b1_size() const { return impl_->get_b1_size(); }
 int Network::get_w2_size() const { return impl_->get_w2_size(); }
 int Network::get_b2_size() const { return impl_->get_b2_size(); }
+
+void Network::save(const std::string &filename)
+{
+    impl_->save(filename);
+}
+
+void Network::load(const std::string &filename)
+{
+    impl_->load(filename);
+}

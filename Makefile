@@ -14,10 +14,14 @@ KERNEL_OBJ = $(KERNEL_SRC:kernels/%.cu=build/%.o)
 OBJ = $(CPP_OBJ) $(CU_OBJ) $(KERNEL_OBJ)
 
 TARGET = build/dqn_cuda
+COMPARE_TARGET = build/compare_dqn
 
-all: $(TARGET)
+all: $(TARGET) $(COMPARE_TARGET)
 
 $(TARGET): $(OBJ)
+	$(NVCC) $(NVCCFLAGS) -o $@ $^ $(LDFLAGS)
+
+$(COMPARE_TARGET): build/compare_dqn.o $(filter-out build/main.o, $(OBJ))
 	$(NVCC) $(NVCCFLAGS) -o $@ $^ $(LDFLAGS)
 
 build/%.o: src/%.cpp
@@ -30,4 +34,4 @@ build/%.o: kernels/%.cu
 	$(NVCC) $(NVCCFLAGS) -c $< -o $@
 
 clean:
-	rm -f build/*.o build/dqn_cuda
+	rm -f build/*.o build/dqn_cuda build/compare_dqn

@@ -13,7 +13,8 @@ DQN::DQN(int state_dim, int action_dim,
          float epsilon_decay,
          size_t buffer_capacity,
          size_t batch_size,
-         int target_update_freq)
+         int target_update_freq,
+         bool use_double_dqn)
     : state_dim_(state_dim),
       action_dim_(action_dim),
       gamma_(gamma),
@@ -23,6 +24,7 @@ DQN::DQN(int state_dim, int action_dim,
       epsilon_decay_(epsilon_decay),
       batch_size_(batch_size),
       target_update_freq_(target_update_freq),
+      use_double_dqn_(use_double_dqn),
       total_steps_(0),
       episodes_trained_(0),
       avg_loss_(0.0f)
@@ -43,6 +45,7 @@ DQN::DQN(int state_dim, int action_dim,
     cudaMalloc(&d_q_values_, batch_size * action_dim * sizeof(float));
     cudaMalloc(&d_next_q_values_, batch_size * action_dim * sizeof(float));
     cudaMalloc(&d_target_q_values_, batch_size * action_dim * sizeof(float));
+    cudaMalloc(&d_next_policy_q_values_, batch_size * action_dim * sizeof(float)); // For Double DQN
     cudaMalloc(&d_gradients_, batch_size * action_dim * sizeof(float));
 
     std::cout << "DQN initialized with:" << std::endl;
@@ -53,6 +56,7 @@ DQN::DQN(int state_dim, int action_dim,
     std::cout << "  Epsilon: " << epsilon_start << " -> " << epsilon_end << std::endl;
     std::cout << "  Buffer capacity: " << buffer_capacity << std::endl;
     std::cout << "  Batch size: " << batch_size << std::endl;
+    std::cout << "  Double DQN: " << (use_double_dqn ? "Enabled" : "Disabled") << std::endl;
 }
 
 DQN::~DQN()
@@ -67,6 +71,7 @@ DQN::~DQN()
     cudaFree(d_q_values_);
     cudaFree(d_next_q_values_);
     cudaFree(d_target_q_values_);
+    cudaFree(d_next_policy_q_values_);
     cudaFree(d_gradients_);
 }
 
@@ -187,10 +192,44 @@ void DQN::train_step()
                    action_dim_ * sizeof(float), cudaMemcpyDeviceToHost);
 
         // Find max Q-value for next state
-        float max_next_q = h_next_q_values[0];
-        for (int a = 1; a < action_dim_; ++a)
+        // Find max Q-value for next state
+        float max_next_q;
+
+        if (use_double_dqn_)
         {
-            max_next_q = std::max(max_next_q, h_next_q_values[a]);
+            // Forward pass through policy network for next state to get selection actions
+            policy_net_->forward(d_next_states_ + i * state_dim_,
+                                 d_next_policy_q_values_ + i * action_dim_);
+            
+            float *h_next_policy_q_values = new float[action_dim_];
+            cudaMemcpy(h_next_policy_q_values, d_next_policy_q_values_ + i * action_dim_,
+                       action_dim_ * sizeof(float), cudaMemcpyDeviceToHost);
+
+            // 1. Select best action using policy network
+            int best_next_action = 0;
+            float max_policy_q = h_next_policy_q_values[0];
+            for (int a = 1; a < action_dim_; ++a)
+            {
+                if (h_next_policy_q_values[a] > max_policy_q)
+                {
+                    max_policy_q = h_next_policy_q_values[a];
+                    best_next_action = a;
+                }
+            }
+            
+            // 2. Evaluate that action using target network (already computed in h_next_q_values)
+            max_next_q = h_next_q_values[best_next_action];
+
+            delete[] h_next_policy_q_values;
+        }
+        else
+        {
+            // Standard DQN: max Q_target(s', a)
+            max_next_q = h_next_q_values[0];
+            for (int a = 1; a < action_dim_; ++a)
+            {
+                max_next_q = std::max(max_next_q, h_next_q_values[a]);
+            }
         }
 
         // Compute TD target
@@ -273,4 +312,20 @@ void DQN::update_target_network()
 void DQN::decay_epsilon()
 {
     epsilon_ = std::max(epsilon_end_, epsilon_ * epsilon_decay_);
+}
+
+void DQN::save_model(const std::string &filename)
+{
+    policy_net_->save(filename);
+}
+
+void DQN::load_model(const std::string &filename)
+{
+    policy_net_->load(filename);
+    // Also update target network to match
+    delete target_net_;
+    target_net_ = new Network(state_dim_, action_dim_);
+    // Ideally we should copy weights, but for now loading into policy and letting target update handle it later is okay,
+    // OR we can just load into target too.
+    target_net_->load(filename);
 }

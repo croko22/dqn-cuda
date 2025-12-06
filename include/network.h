@@ -1,4 +1,5 @@
 #pragma once
+#include <string>
 
 class NetworkImpl;
 class Optimizer;
@@ -16,6 +17,9 @@ public:
     void update_weights(Optimizer *optimizer);
 
     void update_weights(const float *gradients);
+
+    void save(const std::string &filename);
+    void load(const std::string &filename);
 
     float *get_w1();
     float *get_b1();
