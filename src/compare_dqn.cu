@@ -1,4 +1,5 @@
 #include "../include/dqn.h"
+#include "../include/training_logger.h"
 #include <iostream>
 #include <vector>
 #include <string>
@@ -76,7 +77,7 @@ private:
     bool done;
 };
 
-void run_training(bool use_double_dqn, const std::string &output_file)
+void run_training(bool use_double_dqn, const std::string &output_basename)
 {
     SimpleEnv env;
     int state_dim = env.get_state_dim();
@@ -95,15 +96,19 @@ void run_training(bool use_double_dqn, const std::string &output_file)
               10,     // target_update_freq
               use_double_dqn); // Enable/Disable DDQN
 
-    std::ofstream log_file(output_file);
-    log_file << "episode,steps,total_reward,avg_loss,epsilon\n";
-
+    // Use TrainingLogger
+    TrainingLogger logger(output_basename);
+    
     int num_episodes = 500;
+    long global_step = 0;
     
     for (int episode = 0; episode < num_episodes; ++episode)
     {
         env.reset();
         float total_reward = 0.0f;
+        int steps = 0;
+        float episode_loss_sum = 0.0f;
+        int train_count = 0;
         
         while (true)
         {
@@ -118,7 +123,19 @@ void run_training(bool use_double_dqn, const std::string &output_file)
             agent.store_experience(env.get_state(), action, reward, next_state, done);
             agent.train_step();
             
+            // Accumulate loss
+            float loss = agent.get_avg_loss();
+            if (loss > 0.0f) {
+                episode_loss_sum += loss;
+                train_count++;
+            }
+            
             total_reward += reward;
+            steps++;
+            global_step++;
+            
+            // Log step data
+            logger.log_step(global_step, reward, loss, agent.get_last_q_value(), action);
             
             if (done)
                 break;
@@ -126,25 +143,24 @@ void run_training(bool use_double_dqn, const std::string &output_file)
         
         agent.decay_epsilon();
         
+        float avg_loss = (train_count > 0) ? episode_loss_sum / train_count : 0.0f;
+        
         if (episode % 10 == 0)
         {
             std::cout << "Episode " << episode 
                       << " | Reward: " << total_reward 
-                      << " | Loss: " << agent.get_avg_loss() 
+                      << " | Loss: " << avg_loss 
                       << " | Epsilon: " << agent.get_epsilon() << std::endl;
+            logger.flush();
         }
         
-        log_file << episode << "," 
-                 << agent.get_steps() << "," 
-                 << total_reward << "," 
-                 << agent.get_avg_loss() << "," 
-                 << agent.get_epsilon() << "\n";
+        logger.log_episode(episode, total_reward, steps, agent.get_epsilon(), avg_loss);
     }
     
-    log_file.close();
-    std::cout << "Training finished. Results saved to " << output_file << std::endl;
+    std::cout << "Training finished." << std::endl;
     
-    std::string model_file = output_file.substr(0, output_file.find_last_of('.')) + ".bin";
+    // Save model using the same timestamped name
+    std::string model_file = logger.get_base_filename() + ".bin";
     agent.save_model(model_file);
     std::cout << "Model saved to " << model_file << std::endl << std::endl;
 }
@@ -152,10 +168,10 @@ void run_training(bool use_double_dqn, const std::string &output_file)
 int main()
 {
     // Train Standard DQN
-    run_training(false, "dqn_results.csv");
+    run_training(false, "results/dqn_results");
 
     // Train Double DQN
-    run_training(true, "double_dqn_results.csv");
+    run_training(true, "results/double_dqn_results");
 
     return 0;
 }

@@ -5,10 +5,19 @@
 #include <sstream>
 
 TrainingLogger::TrainingLogger(const std::string &filename)
-    : base_filename_(filename)
 {
+    // Generate timestamp
+    std::time_t now = std::time(nullptr);
+    std::tm *tm_now = std::localtime(&now);
+    std::ostringstream oss;
+    oss << std::put_time(tm_now, "%Y-%m-%d_%H-%M-%S");
+    std::string timestamp = oss.str();
+
+    // Store base filename with timestamp
+    base_filename_ = filename + "_" + timestamp;
+
     // Create episode log file
-    std::string episode_filename = filename + "_episodes.csv";
+    std::string episode_filename = base_filename_ + "_episodes.csv";
     episode_file_.open(episode_filename);
     if (!episode_file_.is_open())
     {
@@ -22,7 +31,7 @@ TrainingLogger::TrainingLogger(const std::string &filename)
     }
 
     // Create step log file
-    std::string step_filename = filename + "_steps.csv";
+    std::string step_filename = base_filename_ + "_steps.csv";
     step_file_.open(step_filename);
     if (!step_file_.is_open())
     {

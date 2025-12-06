@@ -27,7 +27,8 @@ DQN::DQN(int state_dim, int action_dim,
       use_double_dqn_(use_double_dqn),
       total_steps_(0),
       episodes_trained_(0),
-      avg_loss_(0.0f)
+      avg_loss_(0.0f),
+      last_q_value_(0.0f)
 {
     // Create networks
     policy_net_ = new Network(state_dim, action_dim);
@@ -117,6 +118,7 @@ int DQN::select_action(const float *state, bool training)
             best_action = i;
         }
     }
+    last_q_value_ = max_q;
 
     delete[] h_q_vals;
     cudaFree(d_state);

@@ -35,6 +35,7 @@ public:
 
     int get_steps() const { return total_steps_; }
     float get_avg_loss() const { return avg_loss_; }
+    float get_last_q_value() const { return last_q_value_; }
 
     void save_model(const std::string &filename);
     void load_model(const std::string &filename);
@@ -60,6 +61,7 @@ private:
     int total_steps_;
     int episodes_trained_;
     float avg_loss_;
+    float last_q_value_;
 
     float *d_states_;
     float *d_next_states_;

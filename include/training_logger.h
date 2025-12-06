@@ -19,6 +19,9 @@ public:
     // Flush to disk
     void flush();
 
+    // Get the base filename (including timestamp)
+    std::string get_base_filename() const { return base_filename_; }
+
 private:
     std::ofstream episode_file_;
     std::ofstream step_file_;

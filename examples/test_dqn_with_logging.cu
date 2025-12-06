@@ -115,7 +115,7 @@ int main()
               buffer_capacity, batch_size, target_update_freq);
 
     // Create training logger
-    TrainingLogger logger("training_log");
+    TrainingLogger logger("results/training_log");
 
     // Training loop
     int num_episodes = 500;
@@ -189,10 +189,10 @@ int main()
 
     std::cout << "\nTraining complete!\n";
     std::cout << "CSV files saved:\n";
-    std::cout << "  - training_log_episodes.csv\n";
-    std::cout << "  - training_log_steps.csv\n";
+    std::cout << "  - results/training_log_episodes.csv\n";
+    std::cout << "  - results/training_log_steps.csv\n";
     std::cout << "\nVisualize results with:\n";
-    std::cout << "  python visualize_training.py training_log\n";
+    std::cout << "  python scripts/visualize_training.py results/training_log\n";
 
     return 0;
 }
