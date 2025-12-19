@@ -131,7 +131,6 @@ int main()
             // Select action
             bool training_mode = (total_steps >= warmup_steps);
             int action = agent.select_action(state.data(), training_mode);
-
             // Take action in environment
             auto [next_state, reward, is_done] = env.step(action);
             done = is_done;
